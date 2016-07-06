@@ -7,12 +7,13 @@ sentry_github.plugin
 """
 import requests
 from urllib import urlencode
+from rest_framework.response import Response
 from django import forms
 from django.contrib import messages
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _
 from sentry.plugins.base import JSONResponse
-from sentry.plugins.bases.issue import IssuePlugin, NewIssueForm
+from sentry.plugins.bases.issue2 import IssuePlugin2
 from sentry.http import safe_urlopen, safe_urlread
 from sentry.utils import json
 from sentry.utils.http import absolute_uri
@@ -27,34 +28,10 @@ class GitHubOptionsForm(forms.Form):
         help_text=_('Enter your repository name, including the owner.'))
 
 
-class GitHubNewIssueForm(NewIssueForm):
-    assignee = forms.ChoiceField(choices=tuple(), required=False)
-
-    def __init__(self, assignee_choices, *args, **kwargs):
-        super(GitHubNewIssueForm, self).__init__(*args, **kwargs)
-        self.fields['assignee'].choices = assignee_choices
-
-
-class GitHubExistingIssueForm(forms.Form):
-    issue_id = forms.CharField(
-        label=_('Issue'),
-        widget=forms.TextInput(attrs={'class': 'issue-selector'}),
-        help_text=mark_safe(_('You can use any syntax supported by GitHub\'s '
-                              '<a href="https://help.github.com/articles/searching-issues/" '
-                              'target="_blank">issue search</a>.')))
-    comment = forms.CharField(
-        label=_('GitHub Comment'),
-        widget=forms.Textarea,
-        required=False,
-        help_text=_('Leave blank if you don\'t want to add a comment to the GitHub issue'))
-
-
-class GitHubPlugin(IssuePlugin):
+class GitHubPlugin(IssuePlugin2):
     author = 'Sentry Team'
     author_url = 'https://github.com/getsentry/sentry'
     version = sentry_github.VERSION
-    new_issue_form = GitHubNewIssueForm
-    link_issue_form = GitHubExistingIssueForm
     description = "Integrate GitHub issues by linking a repository to a project."
     resource_links = [
         ('Bug Tracker', 'https://github.com/getsentry/sentry-github/issues'),
@@ -211,34 +188,34 @@ class GitHubPlugin(IssuePlugin):
         json_resp = json.loads(body)
         return json_resp['title']
 
-    def view(self, request, group, **kwargs):
-        if request.GET.get('autocomplete_query'):
-            query = request.GET.get('q')
-            if not query:
-                return JSONResponse({'issues': []})
-            repo = self.get_option('repo', group.project)
-            query = 'repo:%s %s' % (repo, query)
-            url = 'https://api.github.com/search/issues?%s' % (urlencode({'q': query}),)
+    def view_autocomplete(self, request, group, **kwargs):
+        field = request.GET.get('autocomplete_field')
+        query = request.GET.get('autocomplete_query')
+        if field != 'issue_id' or not query:
+            return Response({'issues': []})
 
-            try:
-                req = self.make_api_request(request.user, url)
-                body = safe_urlread(req)
-            except requests.RequestException as e:
-                msg = unicode(e)
-                self.handle_api_error(request, msg)
-                return JSONResponse({}, status_code=502)
+        repo = self.get_option('repo', group.project)
+        query = 'repo:%s %s' % (repo, query)
+        url = 'https://api.github.com/search/issues?%s' % (urlencode({'q': query}),)
 
-            try:
-                json_resp = json.loads(body)
-            except ValueError as e:
-                msg = unicode(e)
-                self.handle_api_error(request, msg)
-                return JSONResponse({}, status_code=502)
+        try:
+            req = self.make_api_request(request, url)
+            body = safe_urlread(req)
+        except requests.RequestException as e:
+            msg = unicode(e)
+            self.handle_api_error(request, msg)
+            return JSONResponse({}, status_code=502)
 
-            issues = [{
-                'text': '(#%s) %s' % (i['number'], i['title']),
-                'id': i['number']
-            } for i in json_resp.get('items', [])]
-            return JSONResponse({'issues': issues})
+        try:
+            json_resp = json.loads(body)
+        except ValueError as e:
+            msg = unicode(e)
+            self.handle_api_error(request, msg)
+            return JSONResponse({}, status_code=502)
 
-        return super(GitHubPlugin, self).view(request, group, **kwargs)
+        issues = [{
+            'text': '(#%s) %s' % (i['number'], i['title']),
+            'id': i['number']
+        } for i in json_resp.get('items', [])]
+
+        return Response({'issues': issues})
