@@ -20,14 +20,6 @@ from sentry.utils.http import absolute_uri
 
 import sentry_github
 
-
-class GitHubOptionsForm(forms.Form):
-    # TODO: validate repo?
-    repo = forms.CharField(label=_('Repository Name'),
-        widget=forms.TextInput(attrs={'placeholder': 'e.g. getsentry/sentry'}),
-        help_text=_('Enter your repository name, including the owner.'))
-
-
 class GitHubPlugin(IssuePlugin2):
     author = 'Sentry Team'
     author_url = 'https://github.com/getsentry/sentry'
@@ -39,10 +31,9 @@ class GitHubPlugin(IssuePlugin2):
     ]
 
     slug = 'github'
-    title = _('GitHub')
+    title = 'GitHub'
     conf_title = title
     conf_key = 'github'
-    project_conf_form = GitHubOptionsForm
     auth_provider = 'github'
     create_issue_template = 'sentry_github/create_github_issue.html'
     can_unlink_issues = True
@@ -199,7 +190,7 @@ class GitHubPlugin(IssuePlugin2):
         url = 'https://api.github.com/search/issues?%s' % (urlencode({'q': query}),)
 
         try:
-            req = self.make_api_request(request, url)
+            req = self.make_api_request(request.user, url)
             body = safe_urlread(req)
         except requests.RequestException as e:
             msg = unicode(e)
@@ -219,3 +210,13 @@ class GitHubPlugin(IssuePlugin2):
         } for i in json_resp.get('items', [])]
 
         return Response({'issues': issues})
+
+    def get_configure_plugin_fields(self, request, project, **kwargs):
+        return [{
+            'name': 'repo',
+            'label': 'Repository Name',
+            'default': self.get_option('repo', project),
+            'type': 'text',
+            'placeholder': 'e.g. getsentry/sentry',
+            'help_text': 'Enter your repository name, including the owner.'
+        }]
