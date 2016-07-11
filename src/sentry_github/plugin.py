@@ -209,7 +209,7 @@ class GitHubPlugin(IssuePlugin2):
             'id': i['number']
         } for i in json_resp.get('items', [])]
 
-        return Response({'issues': issues})
+        return Response({field: issues})
 
     def get_configure_plugin_fields(self, request, project, **kwargs):
         return [{
