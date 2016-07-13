@@ -9,11 +9,11 @@ import requests
 from urllib import urlencode
 from rest_framework.response import Response
 from django import forms
+from django.conf.urls import url
 from django.contrib import messages
-from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _
 from sentry.plugins.base import JSONResponse
-from sentry.plugins.bases.issue2 import IssuePlugin2
+from sentry.plugins.bases.issue2 import IssuePlugin2, IssueGroupActionEndpoint
 from sentry.http import safe_urlopen, safe_urlread
 from sentry.utils import json
 from sentry.utils.http import absolute_uri
@@ -35,9 +35,14 @@ class GitHubPlugin(IssuePlugin2):
     conf_title = title
     conf_key = 'github'
     auth_provider = 'github'
-    create_issue_template = 'sentry_github/create_github_issue.html'
     can_unlink_issues = True
     can_link_existing_issues = True
+
+    def get_group_urls(self):
+        _patterns = super(GitHubPlugin, self).get_group_urls()
+        _patterns.append(url(r'^(?:issues|groups)/(?P<issue_id>\d+)/plugin/{action}/{slug}'.format(action='autocomplete', slug=self.slug),
+                             IssueGroupActionEndpoint.as_view(view_method_name='view_autocomplete', plugin=self)))
+        return _patterns
 
     def is_configured(self, request, project, **kwargs):
         return bool(self.get_option('repo', project))
@@ -60,8 +65,8 @@ class GitHubPlugin(IssuePlugin2):
 
     def get_allowed_assignees(self, request, group):
         try:
-            url = self.build_api_url(group, 'assignees')
-            req = self.make_api_request(request.user, url)
+            _url = self.build_api_url(group, 'assignees')
+            req = self.make_api_request(request.user, _url)
             body = safe_urlread(req)
         except requests.RequestException as e:
             msg = unicode(e)
@@ -97,14 +102,14 @@ class GitHubPlugin(IssuePlugin2):
     def build_api_url(self, group, github_api, query_params=None):
         repo = self.get_option('repo', group.project)
 
-        url = 'https://api.github.com/repos/%s/%s' % (repo, github_api)
+        _url = 'https://api.github.com/repos/%s/%s' % (repo, github_api)
 
         if query_params:
-            url = '%s?%s' % (url, urlencode(query_params))
+            _url = '%s?%s' % (_url, urlencode(query_params))
 
-        return url
+        return _url
 
-    def make_api_request(self, user, url, json_data=None):
+    def make_api_request(self, user, _url, json_data=None):
         auth = self.get_auth_for_user(user=user)
         if auth is None:
             raise forms.ValidationError(_('You have not yet associated GitHub with your account.'))
@@ -112,7 +117,7 @@ class GitHubPlugin(IssuePlugin2):
         req_headers = {
             'Authorization': 'token %s' % auth.tokens['access_token'],
         }
-        return safe_urlopen(url, json=json_data, headers=req_headers, allow_redirects=True)
+        return safe_urlopen(_url, json=json_data, headers=req_headers, allow_redirects=True)
 
     def create_issue(self, request, group, form_data, **kwargs):
         # TODO: support multiple identities via a selection input in the form?
@@ -123,8 +128,8 @@ class GitHubPlugin(IssuePlugin2):
         }
 
         try:
-            url = self.build_api_url(group, 'issues')
-            req = self.make_api_request(request.user, url, json_data=json_data)
+            _url = self.build_api_url(group, 'issues')
+            req = self.make_api_request(request.user, _url, json_data=json_data)
             body = safe_urlread(req)
         except requests.RequestException as e:
             msg = unicode(e)
@@ -145,9 +150,9 @@ class GitHubPlugin(IssuePlugin2):
         comment = form_data.get('comment')
         if not comment:
             return
-        url = '%s/%s/comments' % (self.build_api_url(group, 'issues'), form_data['issue_id'])
+        _url = '%s/%s/comments' % (self.build_api_url(group, 'issues'), form_data['issue_id'])
         try:
-            req = self.make_api_request(request.user, url, json_data={'body': comment})
+            req = self.make_api_request(request.user, _url, json_data={'body': comment})
             body = safe_urlread(req)
         except requests.RequestException as e:
             msg = unicode(e)
@@ -172,8 +177,8 @@ class GitHubPlugin(IssuePlugin2):
         return 'https://github.com/%s/issues/%s' % (repo, issue_id)
 
     def get_issue_title_by_id(self, request, group, issue_id):
-        url = '%s/%s' % (self.build_api_url(group, 'issues'), issue_id)
-        req = self.make_api_request(request.user, url)
+        _url = '%s/%s' % (self.build_api_url(group, 'issues'), issue_id)
+        req = self.make_api_request(request.user, _url)
 
         body = safe_urlread(req)
         json_resp = json.loads(body)
@@ -187,10 +192,10 @@ class GitHubPlugin(IssuePlugin2):
 
         repo = self.get_option('repo', group.project)
         query = 'repo:%s %s' % (repo, query)
-        url = 'https://api.github.com/search/issues?%s' % (urlencode({'q': query}),)
+        _url = 'https://api.github.com/search/issues?%s' % (urlencode({'q': query}),)
 
         try:
-            req = self.make_api_request(request.user, url)
+            req = self.make_api_request(request.user, _url)
             body = safe_urlread(req)
         except requests.RequestException as e:
             msg = unicode(e)
