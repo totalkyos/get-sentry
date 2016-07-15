@@ -47,17 +47,15 @@ class GitHubPlugin(IssuePlugin2):
     def is_configured(self, request, project, **kwargs):
         return bool(self.get_option('repo', project))
 
-    def get_new_issue_title(self, **kwargs):
-        return 'Link GitHub Issue'
-
-    def get_unlink_issue_title(self, **kwargs):
-        return 'Unlink GitHub Issue'
-
-    def get_new_issue_read_only_fields(self, **kwargs):
-        group = kwargs.get('group')
-        if group:
-            return [{'label': 'Github Repository', 'value': self.get_option('repo', group.project)}]
-        return []
+    def get_new_issue_fields(self, request, group, event, **kwargs):
+        fields = super(GitHubPlugin, self).get_new_issue_fields(request, group, event, **kwargs)
+        return [{
+            'name': 'repo',
+            'label': 'GitHub Repository',
+            'default': self.get_option('repo', group.project),
+            'type': 'text',
+            'readonly': True
+        }] + fields
 
     def handle_api_error(self, request, error):
         msg = _('Error communicating with GitHub: %s') % error
@@ -87,17 +85,6 @@ class GitHubPlugin(IssuePlugin2):
         users = tuple((u['login'], u['login']) for u in json_resp)
 
         return (('', 'Unassigned'),) + users
-
-    def get_initial_link_form_data(self, request, group, event, **kwargs):
-        return {'comment': absolute_uri(group.get_absolute_url())}
-
-    def get_new_issue_form(self, request, group, event, **kwargs):
-        """
-        Return a Form for the "Create new issue" page.
-        """
-        return self.new_issue_form(self.get_allowed_assignees(request, group),
-                                   request.POST or None,
-                                   initial=self.get_initial_form_data(request, group, event))
 
     def build_api_url(self, group, github_api, query_params=None):
         repo = self.get_option('repo', group.project)
